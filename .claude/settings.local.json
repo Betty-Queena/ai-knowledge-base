@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /mnt/c/Users/y/Documents/AI/program/ai-knowledge-base/src/main/java/com/example/aiknowledgebase/util)",
+      "Bash(mkdir -p /mnt/c/Users/y/Documents/AI/program/ai-knowledge-base/src/test/java/com/example/aiknowledgebase/util)"
+    ]
+  }
+}
