@@ -2,29 +2,45 @@ package com.example.aiknowledgebase.store;
 
 import com.example.aiknowledgebase.model.SearchResult;
 import com.example.aiknowledgebase.model.TextChunk;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Map;
 
 /**
- * 向量存储 — 基于内存的余弦相似度检索。
+ * 向量存储 — 基于 Redis Hash 的持久化存储。
  * <p>
- * 当前使用 {@link CopyOnWriteArrayList} 存储所有 {@link TextChunk}，
- * 检索时遍历全部块计算余弦相似度并返回 Top-K 结果。
+ * 所有 {@link TextChunk} 以 JSON 形式存储在 Redis Hash {@code rag:chunks} 中，
+ * field 为 chunk ID，value 为序列化后的 JSON 字符串。
+ * 检索时从 Redis 读取全部 chunk，逐条计算余弦相似度并返回 Top-K。
  * <p>
- * 未来可替换为基于 FAISS / pgvector / Elasticsearch 的实现。
+ * 项目重启后数据不丢失（依赖 Redis 持久化）。
  */
 @Component
 public class VectorStore {
 
-    /** 所有文本块的集合（线程安全） */
-    private final List<TextChunk> chunks = new CopyOnWriteArrayList<>();
+    private static final Logger log = LoggerFactory.getLogger(VectorStore.class);
+
+    /** Redis Hash key，存储所有 chunk：field=chunkId, value=JSON */
+    private static final String REDIS_KEY_CHUNKS = "rag:chunks";
+
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
+
+    public VectorStore(StringRedisTemplate stringRedisTemplate,
+                       ObjectMapper objectMapper) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     /**
-     * 存入一个文本块。
+     * 存入一个文本块到 Redis。
      *
      * @param chunk 文本块（需包含非 null 的 embedding）
      */
@@ -35,7 +51,12 @@ public class VectorStore {
         if (chunk.getEmbedding() == null) {
             throw new IllegalArgumentException("chunk 的 embedding 不能为 null");
         }
-        chunks.add(chunk);
+        try {
+            String json = objectMapper.writeValueAsString(chunk);
+            stringRedisTemplate.opsForHash().put(REDIS_KEY_CHUNKS, chunk.getId(), json);
+        } catch (Exception e) {
+            throw new RuntimeException("TextChunk 序列化失败: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -54,6 +75,8 @@ public class VectorStore {
 
     /**
      * 查询与 queryEmbedding 最相似的 Top-K 个文本块。
+     * <p>
+     * 从 Redis 读取全部 chunk，使用余弦相似度计算后排序返回。
      *
      * @param queryEmbedding 查询向量
      * @param topK           返回前 K 条结果
@@ -67,16 +90,29 @@ public class VectorStore {
             throw new IllegalArgumentException("topK 必须大于 0，当前值: " + topK);
         }
 
-        // 计算每个 chunk 的余弦相似度
+        // 从 Redis 读取全部 chunk
+        Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(REDIS_KEY_CHUNKS);
+        if (entries.isEmpty()) {
+            return List.of();
+        }
+
         List<SearchResult> results = new ArrayList<>();
-        for (TextChunk chunk : chunks) {
-            double similarity = cosineSimilarity(queryEmbedding, chunk.getEmbedding());
-            results.add(new SearchResult(chunk, similarity));
+        for (Map.Entry<Object, Object> entry : entries.entrySet()) {
+            String json = (String) entry.getValue();
+            if (json == null) {
+                continue;
+            }
+            try {
+                TextChunk chunk = objectMapper.readValue(json, TextChunk.class);
+                double similarity = cosineSimilarity(queryEmbedding, chunk.getEmbedding());
+                results.add(new SearchResult(chunk, similarity));
+            } catch (Exception e) {
+                log.warn("TextChunk 反序列化失败, field={}: {}", entry.getKey(), e.getMessage());
+            }
         }
 
         // 按相似度降序排序，取 Top-K
         results.sort(Comparator.comparingDouble(SearchResult::getScore).reversed());
-
         return topK >= results.size() ? results : results.subList(0, topK);
     }
 
@@ -84,14 +120,15 @@ public class VectorStore {
      * 获取当前存储的文本块总数。
      */
     public int size() {
-        return chunks.size();
+        Long size = stringRedisTemplate.opsForHash().size(REDIS_KEY_CHUNKS);
+        return size != null ? size.intValue() : 0;
     }
 
     /**
      * 清空所有文本块。
      */
     public void clear() {
-        chunks.clear();
+        stringRedisTemplate.delete(REDIS_KEY_CHUNKS);
     }
 
     // ==================== 工具方法 ====================
