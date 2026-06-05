@@ -23,6 +23,11 @@ public class OllamaClient {
     @Value("${ollama.model}")
     private String modelName;
 
+    @Value("${ollama.embedding-model:nomic-embed-text:latest}")
+    private String embeddingModelName;
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OllamaClient.class);
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -72,12 +77,12 @@ public class OllamaClient {
      * 调用 Ollama /api/embeddings，将文本转为向量
      *
      * @param text 要编码的文本
-     * @return float 数组（qwen2.5:1.5b 为 1536 维）
+     * @return float 数组（nomic-embed-text 为 768 维）
      */
     public float[] embed(String text) {
         try {
             Map<String, Object> body = new HashMap<>();
-            body.put("model", modelName);
+            body.put("model", embeddingModelName);
             body.put("prompt", text);
 
             String jsonBody = objectMapper.writeValueAsString(body);
@@ -100,7 +105,10 @@ public class OllamaClient {
             JsonNode jsonNode = objectMapper.readTree(response.body());
 
             if (!jsonNode.has("embedding") || !jsonNode.get("embedding").isArray()) {
-                throw new BusinessException("Ollama Embedding 返回结果异常");
+                String responseBody = response.body();
+                log.error("Ollama Embedding 返回结果异常，响应内容: {}", responseBody);
+                throw new BusinessException("Ollama Embedding 返回结果异常，响应: "
+                        + (responseBody.length() > 200 ? responseBody.substring(0, 200) : responseBody));
             }
 
             JsonNode embeddingArray = jsonNode.get("embedding");
