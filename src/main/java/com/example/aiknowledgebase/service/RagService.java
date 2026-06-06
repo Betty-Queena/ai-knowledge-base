@@ -120,6 +120,25 @@ public class RagService {
      * @throws BusinessException 当 question 为空或知识库为空时抛出
      */
     public String ask(String question) {
+        return ask(question, null);
+    }
+
+    /**
+     * 基于知识库内容 + 历史会话上下文回答用户问题。
+     * <p>
+     * 与 {@link #ask(String)} 的区别在于：
+     * <ul>
+     *   <li>检索时会将历史对话与当前问题拼接以提高 recall</li>
+     *   <li>构造 prompt 时额外注入历史对话，让模型理解上下文指代</li>
+     *   <li>回答仍然优先基于知识库上下文</li>
+     * </ul>
+     *
+     * @param question            用户当前问题
+     * @param conversationContext 最近几轮对话的文本（可为 null/空）
+     * @return 大模型生成的回答
+     * @throws BusinessException 当 question 为空或知识库为空时抛出
+     */
+    public String ask(String question, String conversationContext) {
         // ── 参数校验 ──────────────────────────────────────────────
         if (question == null || question.isBlank()) {
             throw new BusinessException(400, "问题不能为空");
@@ -128,27 +147,35 @@ public class RagService {
             throw new BusinessException(400, "知识库为空，请先索引文档");
         }
 
-        // ── 1. 问题 embedding ─────────────────────────────────────
-        float[] queryEmbedding = embeddingService.embed(question);
+        // ── 1. 构造检索查询 ─────────────────────────────────────────
+        String retrievalQuery;
+        if (conversationContext != null && !conversationContext.isBlank()) {
+            retrievalQuery = conversationContext + "\n当前问题：" + question;
+        } else {
+            retrievalQuery = question;
+        }
 
-        // ── 2. 检索 Top-3 ─────────────────────────────────────────
+        // ── 2. embedding 并检索 ─────────────────────────────────────
+        float[] queryEmbedding = embeddingService.embed(retrievalQuery);
+
+        // ── 3. 检索 Top-K ──────────────────────────────────────────
         List<SearchResult> searchResults = vectorStore.search(queryEmbedding, TOP_K);
         if (searchResults.isEmpty()) {
             return "抱歉，知识库中未找到与问题相关的内容。";
         }
 
-        // ── 3. 拼接上下文 ──────────────────────────────────────────
+        // ── 4. 拼接上下文 ──────────────────────────────────────────
         String context = searchResults.stream()
                 .map(r -> r.getChunk().getContent())
                 .collect(Collectors.joining("\n\n---\n\n"));
 
-        // ── 4. 构造约束 prompt ─────────────────────────────────────
-        String prompt = buildPrompt(context, question);
+        // ── 5. 构造约束 prompt（含历史会话）─────────────────────────
+        String prompt = buildPrompt(context, conversationContext, question);
 
-        // ── 5. 调用大模型 ──────────────────────────────────────────
-        log.info("RAG ask: question={}, contextLength={}chars, top1Score={}",
-                truncate(question, 50), context.length(),
-                String.format("%.4f", searchResults.get(0).getScore()));
+        // ── 6. 调用大模型 ──────────────────────────────────────────
+        log.info("RAG ask: question={}, retrievalQueryLength={}chars, contextLength={}chars, hasHistory={}",
+                truncate(question, 50), retrievalQuery.length(), context.length(),
+                conversationContext != null && !conversationContext.isBlank());
 
         String answer = ollamaClient.generate(prompt);
 
@@ -159,7 +186,7 @@ public class RagService {
     // ==================== 私有方法 ====================
 
     /**
-     * 构造 RAG 问答 prompt。
+     * 构造 RAG 问答 prompt（无历史会话）。
      * <p>
      * 要求模型：
      * <ul>
@@ -169,6 +196,16 @@ public class RagService {
      * </ul>
      */
     private String buildPrompt(String context, String question) {
+        return buildPrompt(context, null, question);
+    }
+
+    /**
+     * 构造 RAG 问答 prompt（含历史会话上下文）。
+     * <p>
+     * 在原有约束基础上增加历史会话，帮助模型理解"它/这个/上面说的"等指代。
+     * 检索仍基于当前问题，历史仅作为额外参考。
+     */
+    private String buildPrompt(String context, String conversationContext, String question) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一个知识库问答助手。请根据以下提供的上下文内容回答用户的问题。\n\n");
         sb.append("规则：\n");
@@ -177,6 +214,13 @@ public class RagService {
                 .append("“根据提供的资料，无法回答该问题”\n");
         sb.append("3. 回答要简洁、准确，使用中文\n");
         sb.append("4. 可以引用上下文中的原文来支撑你的回答\n\n");
+
+        // 注入历史会话（如果有），帮助模型理解上下文指代
+        if (conversationContext != null && !conversationContext.isBlank()) {
+            sb.append("以下是最近的对话历史，供参考（但仍优先使用上下文中的知识库资料）：\n");
+            sb.append(conversationContext).append("\n\n");
+        }
+
         sb.append("上下文：\n").append(context).append("\n\n");
         sb.append("问题：").append(question).append("\n\n");
         sb.append("回答：");

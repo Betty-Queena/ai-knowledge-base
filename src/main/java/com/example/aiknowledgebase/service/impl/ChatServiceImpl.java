@@ -3,8 +3,6 @@ package com.example.aiknowledgebase.service.impl;
 import com.example.aiknowledgebase.client.OllamaClient;
 import com.example.aiknowledgebase.common.BusinessException;
 import com.example.aiknowledgebase.dto.ChatMessage;
-import com.example.aiknowledgebase.dto.ChatRequest;
-import com.example.aiknowledgebase.dto.ChatResponse;
 import com.example.aiknowledgebase.service.ChatService;
 import com.example.aiknowledgebase.service.RagService;
 import org.slf4j.Logger;
@@ -13,7 +11,9 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class ChatServiceImpl implements ChatService {
@@ -21,6 +21,12 @@ public class ChatServiceImpl implements ChatService {
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
 
     private static final String CHAT_HISTORY_KEY = "chat:history";
+
+    /** 构造会话上下文时取最近的消息条数 */
+    private static final int MAX_HISTORY_SIZE = 6;
+
+    /** 会话上下文文本的最大字符数，防止 prompt 过长 */
+    private static final int MAX_CONTEXT_CHARS = 2000;
 
     private final OllamaClient ollamaClient;
     private final RedisTemplate<String, Object> redisTemplate;
@@ -35,13 +41,15 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    public ChatResponse ask(ChatRequest request) {
-        if (request == null || !StringUtils.hasText(request.getQuestion())) {
+    public String ask(String question, String sessionId) {
+        if (!StringUtils.hasText(question)) {
             throw new BusinessException(400, "问题不能为空");
         }
 
-        String question = request.getQuestion();
-        String answer = generateAnswer(question);
+        // 从 Redis 中构建最近会话上下文
+        String conversationContext = buildConversationContext(sessionId);
+
+        String answer = generateAnswer(question, conversationContext);
 
         ChatMessage message = new ChatMessage(
                 question,
@@ -49,26 +57,67 @@ public class ChatServiceImpl implements ChatService {
                 System.currentTimeMillis()
         );
 
-        redisTemplate.opsForList().leftPush(CHAT_HISTORY_KEY, message);
+        String historyKey = buildHistoryKey(sessionId);
+        redisTemplate.opsForList().leftPush(historyKey, message);
 
         // 只保留最近 20 条，避免 Redis 无限增长
-        redisTemplate.opsForList().trim(CHAT_HISTORY_KEY, 0, 19);
+        redisTemplate.opsForList().trim(historyKey, 0, 19);
 
-        return new ChatResponse(answer);
+        return answer;
+    }
+
+    /**
+     * 从 Redis 读取最近 N 条聊天记录，格式化为历史会话文本（时间正序）。
+     * <p>
+     * 返回形如：
+     * <pre>
+     * 用户：xxx
+     * 助手：xxx
+     *
+     * 用户：yyy
+     * 助手：yyy
+     * </pre>
+     */
+    private String buildConversationContext(String sessionId) {
+        // Redis 中最新记录在链表头部（index 0），取 top-N
+        List<Object> objects = redisTemplate.opsForList().range(
+                buildHistoryKey(sessionId), 0, MAX_HISTORY_SIZE - 1);
+
+        if (objects == null || objects.isEmpty()) {
+            return "";
+        }
+
+        // 反转：变为时间正序（旧→新）
+        List<ChatMessage> messages = objects.stream()
+                .filter(ChatMessage.class::isInstance)
+                .map(ChatMessage.class::cast)
+                .collect(Collectors.toList());
+        Collections.reverse(messages);
+
+        // 拼接历史文本，超过长度限制时截断
+        StringBuilder sb = new StringBuilder();
+        for (ChatMessage msg : messages) {
+            String entry = "用户：" + msg.getQuestion() + "\n助手：" + msg.getAnswer() + "\n";
+            if (sb.length() + entry.length() > MAX_CONTEXT_CHARS) {
+                break;
+            }
+            sb.append(entry);
+        }
+        return sb.toString();
     }
 
     /**
      * 优先使用 RAG 检索增强回答，失败则降级为普通对话。
      * <p>
-     * 降级条件：
+     * 和 {@link #generateAnswer(String)} 的区别：
      * <ul>
-     *   <li>知识库为空（未上传文档）</li>
-     *   <li>Embedding 或 Ollama 调用异常</li>
+     *   <li>RAG 路径：调用 {@link RagService#ask(String, String)} 带上会话上下文</li>
+     *   <li>降级路径：将会话上下文拼入普通对话 prompt</li>
      * </ul>
      */
-    private String generateAnswer(String question) {
+    private String generateAnswer(String question, String conversationContext) {
         try {
-            String answer = ragService.ask(question);
+            String answer = ragService.ask(question, conversationContext);
             log.info("RAG 回答成功: question=\"{}\"", truncate(question, 50));
             return answer;
         } catch (BusinessException e) {
@@ -84,10 +133,47 @@ public class ChatServiceImpl implements ChatService {
                     e.getMessage(), truncate(question, 50));
         }
 
-        // 降级：走普通 Ollama 对话
-        String fallbackAnswer = ollamaClient.generate(question);
+        // 降级：走普通 Ollama 对话（带上历史上下文）
+        String promptWithHistory = buildFallbackPrompt(question, conversationContext);
+        String fallbackAnswer = ollamaClient.generate(promptWithHistory);
         log.info("普通对话回答成功: question=\"{}\"", truncate(question, 50));
         return fallbackAnswer;
+    }
+
+    /**
+     * 构造降级（非 RAG）场景的对话 prompt。
+     * 包含历史上下文，让模型能理解上下文指代。
+     */
+    private static String buildFallbackPrompt(String question, String conversationContext) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("你是一个智能问答助手。请回答用户的问题。\n\n");
+        if (conversationContext != null && !conversationContext.isBlank()) {
+            sb.append("以下是最近的对话历史，供参考：\n");
+            sb.append(conversationContext).append("\n\n");
+        }
+        sb.append("用户：").append(question).append("\n");
+        sb.append("助手：");
+        return sb.toString();
+    }
+
+    /**
+     * 优先使用 RAG 检索增强回答，失败则降级为普通对话。
+     * <p>
+     * 降级条件：
+     * <ul>
+     *   <li>知识库为空（未上传文档）</li>
+     *   <li>Embedding 或 Ollama 调用异常</li>
+     * </ul>
+     */
+    private String generateAnswer(String question) {
+        return generateAnswer(question, "");
+    }
+
+    private String buildHistoryKey(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            sessionId = "default";
+        }
+        return "ai:chat:history:" + sessionId;
     }
 
     private static String truncate(String s, int maxLen) {

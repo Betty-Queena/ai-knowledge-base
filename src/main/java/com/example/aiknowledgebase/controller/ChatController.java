@@ -21,7 +21,8 @@ public class ChatController {
 
     @PostMapping("/ask")
     public Result<ChatResponse> ask(@RequestBody ChatRequest request) {
-        return Result.success(chatService.ask(request));
+        String answer = chatService.ask(request.getQuestion(), request.getSessionId());
+        return Result.success(new ChatResponse(answer));
     }
 
     @GetMapping("/history")
