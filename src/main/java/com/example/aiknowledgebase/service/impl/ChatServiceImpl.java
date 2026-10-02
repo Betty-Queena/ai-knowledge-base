@@ -2,6 +2,7 @@ package com.example.aiknowledgebase.service.impl;
 
 import com.example.aiknowledgebase.client.OllamaClient;
 import com.example.aiknowledgebase.common.BusinessException;
+import com.example.aiknowledgebase.common.ErrorCode;
 import com.example.aiknowledgebase.dto.ChatMessage;
 import com.example.aiknowledgebase.service.ChatService;
 import com.example.aiknowledgebase.service.RagService;
@@ -20,7 +21,8 @@ public class ChatServiceImpl implements ChatService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
 
-    private static final String CHAT_HISTORY_KEY = "chat:history";
+    /** 每个会话在 Redis 中保留的最大消息条数，避免无限增长 */
+    private static final int MAX_STORED_MESSAGES = 20;
 
     /** 构造会话上下文时取最近的消息条数 */
     private static final int MAX_HISTORY_SIZE = 6;
@@ -43,7 +45,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public String ask(String question, String sessionId) {
         if (!StringUtils.hasText(question)) {
-            throw new BusinessException(400, "问题不能为空");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "问题不能为空");
         }
 
         // 从 Redis 中构建最近会话上下文
@@ -60,8 +62,8 @@ public class ChatServiceImpl implements ChatService {
         String historyKey = buildHistoryKey(sessionId);
         redisTemplate.opsForList().leftPush(historyKey, message);
 
-        // 只保留最近 20 条，避免 Redis 无限增长
-        redisTemplate.opsForList().trim(historyKey, 0, 19);
+        // 只保留最近 N 条，避免 Redis 无限增长
+        redisTemplate.opsForList().trim(historyKey, 0, MAX_STORED_MESSAGES - 1);
 
         return answer;
     }
@@ -109,11 +111,12 @@ public class ChatServiceImpl implements ChatService {
     /**
      * 优先使用 RAG 检索增强回答，失败则降级为普通对话。
      * <p>
-     * 和 {@link #generateAnswer(String)} 的区别：
+     * 和纯 LLM 对话的区别：
      * <ul>
      *   <li>RAG 路径：调用 {@link RagService#ask(String, String)} 带上会话上下文</li>
      *   <li>降级路径：将会话上下文拼入普通对话 prompt</li>
      * </ul>
+     * 降级判定基于 {@link ErrorCode}，不再依赖异常消息文本比较。
      */
     private String generateAnswer(String question, String conversationContext) {
         try {
@@ -122,11 +125,11 @@ public class ChatServiceImpl implements ChatService {
             return answer;
         } catch (BusinessException e) {
             // 知识库为空是预期情况，非异常
-            if ("知识库为空，请先索引文档".equals(e.getMessage())) {
+            if (e.is(ErrorCode.KNOWLEDGE_BASE_EMPTY)) {
                 log.info("知识库为空，降级为普通对话: question=\"{}\"", truncate(question, 50));
             } else {
-                log.warn("RAG 回答失败 ({}), 降级为普通对话: {}",
-                        e.getMessage(), truncate(question, 50));
+                log.warn("RAG 回答失败 (code={}, {}), 降级为普通对话: {}",
+                        e.getCode(), e.getMessage(), truncate(question, 50));
             }
         } catch (Exception e) {
             log.warn("RAG 回答异常 ({}), 降级为普通对话: {}",
@@ -156,17 +159,23 @@ public class ChatServiceImpl implements ChatService {
         return sb.toString();
     }
 
-    /**
-     * 优先使用 RAG 检索增强回答，失败则降级为普通对话。
-     * <p>
-     * 降级条件：
-     * <ul>
-     *   <li>知识库为空（未上传文档）</li>
-     *   <li>Embedding 或 Ollama 调用异常</li>
-     * </ul>
-     */
-    private String generateAnswer(String question) {
-        return generateAnswer(question, "");
+    @Override
+    public List<ChatMessage> history(String sessionId) {
+        // 读取与写入必须使用同一个 key：写入走 buildHistoryKey(sessionId)。
+        List<Object> list = redisTemplate.opsForList().range(
+                buildHistoryKey(sessionId), 0, MAX_STORED_MESSAGES - 1);
+
+        if (list == null || list.isEmpty()) {
+            return List.of();
+        }
+
+        // Redis 中最新记录在头部，反转为时间正序（旧 → 新）后返回
+        List<ChatMessage> messages = list.stream()
+                .filter(ChatMessage.class::isInstance)
+                .map(ChatMessage.class::cast)
+                .collect(Collectors.toList());
+        Collections.reverse(messages);
+        return messages;
     }
 
     private String buildHistoryKey(String sessionId) {
@@ -179,19 +188,5 @@ public class ChatServiceImpl implements ChatService {
     private static String truncate(String s, int maxLen) {
         if (s == null) return "null";
         return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
-    }
-
-    @Override
-    public List<ChatMessage> history() {
-        List<Object> list = redisTemplate.opsForList().range(CHAT_HISTORY_KEY, 0, 19);
-
-        if (list == null) {
-            return List.of();
-        }
-
-        return list.stream()
-                .filter(ChatMessage.class::isInstance)
-                .map(ChatMessage.class::cast)
-                .toList();
     }
 }

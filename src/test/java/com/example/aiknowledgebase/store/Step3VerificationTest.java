@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
 
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 3. 输出 → SearchResult
  */
 @SpringBootTest
+@ActiveProfiles("test")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class Step3VerificationTest {
 
@@ -39,7 +41,9 @@ class Step3VerificationTest {
 
     @BeforeEach
     void setUp() {
-        // 每次测试前清理，避免互相干扰
+        // 每次测试前清理，避免互相干扰。
+        // 依赖 test profile 提供的独立 key 前缀（rag-test）与独立 Redis 库，
+        // 否则这里的 clear() 会直接删掉生产知识库的数据。
         vectorStore.clear();
     }
 
@@ -80,7 +84,7 @@ class Step3VerificationTest {
         log.info("Step 3 闭环验证通过 ✅");
         log.info("  查询: {}", query);
         log.info("  Top-1 内容: {}", top1.getChunk().getContent());
-        log.info("  相似度得分: {:.4f}", top1.getScore());
+        log.info("  相似度得分: {}", fmt(top1.getScore()));
         log.info("=" .repeat(60));
     }
 
@@ -114,9 +118,16 @@ class Step3VerificationTest {
                 "Top-1 分数应高于 Top-2");
 
         log.info("多文本块检索验证 ✅");
-        log.info("  Top-1: {} (score={:.4f})", top1.getChunk().getContent(), top1.getScore());
-        log.info("  Top-2: {} (score={:.4f})", results.get(1).getChunk().getContent(), results.get(1).getScore());
-        log.info("  Top-3: {} (score={:.4f})", results.get(2).getChunk().getContent(), results.get(2).getScore());
+        log.info("  Top-1: {} (score={})", top1.getChunk().getContent(), fmt(top1.getScore()));
+        log.info("  Top-2: {} (score={})", results.get(1).getChunk().getContent(), fmt(results.get(1).getScore()));
+        log.info("  Top-3: {} (score={})", results.get(2).getChunk().getContent(), fmt(results.get(2).getScore()));
+    }
+
+    /**
+     * SLF4J 不支持 {:.4f} 这类格式说明符，会把占位符原样打印，因此先格式化再传入。
+     */
+    private static String fmt(double score) {
+        return String.format("%.4f", score);
     }
 
     @Test
