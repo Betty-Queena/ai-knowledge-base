@@ -1,0 +1,40 @@
+{"id":"q001","type":"answerable","question":"SpringBootApplication 这个注解是由哪三个注解组合而成的？","goldDocIds":["spring-boot-auto-config"],"goldChunkIds":["spring-boot-auto-config-chunk-0"],"evidence":"`@SpringBootConfiguration`、`@EnableAutoConfiguration` 和 `@ComponentScan`","notes":"原文问法"}
+{"id":"q002","type":"answerable","question":"Spring Boot 2.7 之后，自动配置的候选清单换成了哪个文件？","goldDocIds":["spring-boot-auto-config"],"goldChunkIds":["spring-boot-auto-config-chunk-1"],"evidence":"改为读 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`","notes":"改写"}
+{"id":"q003","type":"answerable","question":"我自己定义了一个同类型的 Bean，Boot 的自动配置还会生效吗？","goldDocIds":["spring-boot-auto-config"],"goldChunkIds":["spring-boot-auto-config-chunk-2"],"evidence":"自动配置就会主动退让，不会覆盖你的定义。","notes":"口语化"}
+{"id":"q004","type":"answerable","question":"想确认某个自动配置类为什么没有生效，应该看什么？","goldDocIds":["spring-boot-auto-config"],"goldChunkIds":["spring-boot-auto-config-chunk-3"],"evidence":"控制台会打印一份条件评估报告（Condition Evaluation Report）","notes":"改写"}
+{"id":"q005","type":"answerable","question":"强缓存命中的时候，浏览器还会发出请求吗？","goldDocIds":["http-caching"],"goldChunkIds":["http-caching-chunk-0"],"evidence":"强缓存命中时，浏览器直接用本地副本，连请求都不会发出。","notes":"原文问法"}
+{"id":"q006","type":"answerable","question":"s-maxage 和 max-age 的作用范围有什么不同？","goldDocIds":["http-caching"],"goldChunkIds":["http-caching-chunk-0"],"evidence":"`s-maxage`：只对共享缓存（CDN、反向代理）生效，会覆盖 `max-age`；","notes":"改写"}
+{"id":"q007","type":"answerable","question":"no-cache 是不是就等于完全不缓存？","goldDocIds":["http-caching"],"goldChunkIds":["http-caching-chunk-0","http-caching-chunk-1"],"evidence":"这里最容易混淆的是 `no-cache` 和 `no-store`","notes":"口语化；答案跨切分边界，故有两个 gold chunk"}
+{"id":"q008","type":"answerable","question":"304 响应省下的是流量，还是那次网络往返的延迟？","goldDocIds":["http-caching"],"goldChunkIds":["http-caching-chunk-2"],"evidence":"但请求本身仍然发出去了，一次往返的网络延迟省不掉。","notes":"改写"}
+{"id":"q009","type":"answerable","question":"InnoDB 的 B+ 树为什么树高很低，一次查询只要几次磁盘 IO？","goldDocIds":["mysql-index-btree"],"goldChunkIds":["mysql-index-btree-chunk-0"],"evidence":"树高通常只有三层左右，一次查询只需要两到三次磁盘 IO；","notes":"改写"}
+{"id":"q010","type":"answerable","question":"二级索引的叶子节点里存放的是什么？","goldDocIds":["mysql-index-btree"],"goldChunkIds":["mysql-index-btree-chunk-0"],"evidence":"二级索引（也叫辅助索引）的叶子节点存放的不是整行，而是索引列的值加上主键值。","notes":"原文问法"}
+{"id":"q011","type":"answerable","question":"联合索引是 (a,b,c)，我只用 b 作为查询条件，能用上这个索引吗？","goldDocIds":["mysql-index-btree"],"goldChunkIds":["mysql-index-btree-chunk-1"],"evidence":"`WHERE b = ?` 或 `WHERE b = ? AND c = ?` 用不上这个索引；","notes":"口语化"}
+{"id":"q012","type":"answerable","question":"执行计划里出现什么值说明这条 SQL 走了全表扫描？","goldDocIds":["mysql-index-btree"],"goldChunkIds":["mysql-index-btree-chunk-2"],"evidence":"出现 `ALL` 说明走了全表扫描；","notes":"改写"}
+{"id":"q013","type":"answerable","question":"余弦相似度的取值范围是多少？","goldDocIds":["text-embedding-rag"],"goldChunkIds":["text-embedding-rag-chunk-0"],"evidence":"它的取值范围是 -1 到 1，只看向量方向、忽略长度，","notes":"原文问法"}
+{"id":"q014","type":"answerable","question":"两个不同 embedding 模型产出的向量，能不能直接算余弦相似度来比较？","goldDocIds":["text-embedding-rag"],"goldChunkIds":["text-embedding-rag-chunk-0"],"evidence":"需要注意，余弦相似度只有在同一个模型产出的向量之间比较才有意义，","notes":"改写"}
+{"id":"q015","type":"answerable","question":"数据量不大的时候，有必要上 HNSW 这类近似索引吗？","goldDocIds":["text-embedding-rag"],"goldChunkIds":["text-embedding-rag-chunk-0","text-embedding-rag-chunk-1"],"evidence":"数据量到了百万级，就需要近似最近邻（ANN）索引，","notes":"口语化；答案跨切分边界，故有两个 gold chunk"}
+{"id":"q016","type":"answerable","question":"BGSAVE 为什么不会阻塞主线程？","goldDocIds":["redis-persistence"],"goldChunkIds":["redis-persistence-chunk-0"],"evidence":"`BGSAVE` 则 fork 出一个子进程去写，主线程继续处理命令。","notes":"原文问法"}
+{"id":"q017","type":"answerable","question":"appendfsync 的默认值是什么，最多会丢多少数据？","goldDocIds":["redis-persistence"],"goldChunkIds":["redis-persistence-chunk-1"],"evidence":"`everysec`：每秒 fsync 一次，是默认值，最多丢一秒的数据；","notes":"改写"}
+{"id":"q018","type":"answerable","question":"AOF 文件越来越大，Redis 自己会处理吗？","goldDocIds":["redis-persistence"],"goldChunkIds":["redis-persistence-chunk-1"],"evidence":"AOF 文件会随着时间不断变大，所以 Redis 提供了重写机制：","notes":"口语化"}
+{"id":"q019","type":"answerable","question":"容器里的写操作发生在镜像的哪一层？","goldDocIds":["docker-image-layers"],"goldChunkIds":["docker-image-layers-chunk-0"],"evidence":"而是在所有只读层之上再加一个可写层，所有写操作都落在这个可写层里，","notes":"原文问法"}
+{"id":"q020","type":"answerable","question":"为什么 Java 项目建议先复制 pom.xml 再复制源码？","goldDocIds":["docker-image-layers"],"goldChunkIds":["docker-image-layers-chunk-1"],"evidence":"这样日常改动源码时，只有后面两层需要重建，下载依赖那一层仍然命中缓存，","notes":"改写"}
+{"id":"q021","type":"answerable","question":"镜像的 tag 和 digest 有什么区别？","goldDocIds":["docker-image-layers"],"goldChunkIds":["docker-image-layers-chunk-2"],"evidence":"digest 是镜像内容的哈希值，只要内容不变它就不变。","notes":"口语化"}
+{"id":"q022","type":"answerable","question":"JVM 是凭什么判断一个对象可以被回收的？","goldDocIds":["jvm-gc-basics"],"goldChunkIds":["jvm-gc-basics-chunk-0"],"evidence":"主流 JVM 不用引用计数，而是用可达性分析：","notes":"原文问法"}
+{"id":"q023","type":"answerable","question":"软引用和弱引用在回收时机上有什么不同？","goldDocIds":["jvm-gc-basics"],"goldChunkIds":["jvm-gc-basics-chunk-0","jvm-gc-basics-chunk-1"],"evidence":"软引用在内存不足时才回收，适合做缓存；","notes":"改写；答案跨切分边界，故有两个 gold chunk"}
+{"id":"q024","type":"answerable","question":"线上 OOM 了，想在现场留下堆快照应该加什么参数？","goldDocIds":["jvm-gc-basics"],"goldChunkIds":["jvm-gc-basics-chunk-2"],"evidence":"最值得先加的是 `-XX:+HeapDumpOnOutOfMemoryError`，","notes":"口语化"}
+{"id":"q025","type":"answerable","question":"JWT 的载荷部分是加密的吗？","goldDocIds":["jwt-auth"],"goldChunkIds":["jwt-auth-chunk-0"],"evidence":"前两段只是 Base64URL 编码，不是加密。","notes":"原文问法"}
+{"id":"q026","type":"answerable","question":"JWT 很难立刻撤销，常见的缓解办法有哪些？","goldDocIds":["jwt-auth"],"goldChunkIds":["jwt-auth-chunk-1"],"evidence":"常见的缓解办法有三种：把有效期设得很短，配合 refresh token 定期换新；","notes":"改写"}
+{"id":"q027","type":"answerable","question":"为什么说服务端不能接受客户端传来的签名算法？","goldDocIds":["jwt-auth"],"goldChunkIds":["jwt-auth-chunk-1","jwt-auth-chunk-2"],"evidence":"正确做法是服务端固定允许的算法，不接受客户端传来的算法。","notes":"口语化；答案跨切分边界，故有两个 gold chunk"}
+{"id":"q028","type":"answerable","question":"provided 范围的依赖会被打包进最终产物吗？","goldDocIds":["maven-dependency-scope"],"goldChunkIds":["maven-dependency-scope-chunk-0"],"evidence":"运行时由容器或 JDK 提供，打包时不进产物，也不传递。","notes":"原文问法"}
+{"id":"q029","type":"answerable","question":"同一个依赖出现两个不同版本时，Maven 会保留哪一个？","goldDocIds":["maven-dependency-scope"],"goldChunkIds":["maven-dependency-scope-chunk-0","maven-dependency-scope-chunk-1"],"evidence":"离本项目越近的版本胜出。如果两个版本到根的距离相同，则先声明的那一个胜出。","notes":"改写；答案跨切分边界，故有两个 gold chunk"}
+{"id":"q030","type":"answerable","question":"dependencyManagement 会把依赖真的引入项目吗？","goldDocIds":["maven-dependency-scope"],"goldChunkIds":["maven-dependency-scope-chunk-1"],"evidence":"只统一版本号，本身并不引入依赖。","notes":"口语化"}
+{"id":"u001","type":"unanswerable","question":"Spring Boot 3 要求的最低 JDK 版本是多少？","notes":"同域未记载：语料只提到 2.7 的清单文件变更，没有版本与 JDK 要求"}
+{"id":"u002","type":"unanswerable","question":"Redis 7 的多线程 IO 默认开几个线程？","notes":"同域未记载：语料只讲持久化，没有网络模型与线程数"}
+{"id":"u003","type":"unanswerable","question":"InnoDB 的页默认大小是多少 KB？","notes":"同域未记载：语料提到页，但没有给出页大小"}
+{"id":"u004","type":"unanswerable","question":"HS256 算法要求密钥至少多少位才安全？","notes":"同域未记载：语料只讲算法不能由客户端指定，没给密钥长度要求"}
+{"id":"u005","type":"unanswerable","question":"G1 的 Region 大小可以通过哪个参数调整？","notes":"同域未记载：语料提到 Region 与 Humongous，但没给出 Region 大小参数"}
+{"id":"u006","type":"unanswerable","question":"明天北京的天气怎么样？","notes":"跨域无关"}
+{"id":"u007","type":"unanswerable","question":"红烧肉怎么做才不腻？","notes":"跨域无关"}
+{"id":"u008","type":"unanswerable","question":"上一届世界杯的冠军是哪支球队？","notes":"跨域无关"}
+{"id":"u009","type":"unanswerable","question":"G1 里的 Humongous 对象是不是会直接分配到老年代？","notes":"词汇陷阱：Humongous、Region 都在语料里出现，但语料未说明其分配位置"}
+{"id":"u010","type":"unanswerable","question":"余弦相似度算出来的分数能直接当成概率来理解吗？","notes":"词汇陷阱：语料给了取值范围与余弦的含义，但未讨论与概率的关系"}
